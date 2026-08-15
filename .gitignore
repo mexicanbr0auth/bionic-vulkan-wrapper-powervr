@@ -1,0 +1,4 @@
+build-ndk/
+dist/
+src/vulkan/wrapper/lib/
+__pycache__/
