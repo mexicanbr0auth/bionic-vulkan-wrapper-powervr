@@ -1,0 +1,59 @@
+name: build-wrapper
+
+on:
+  push:
+    branches: ['**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-wrapper-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Install host tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build meson pkg-config \
+            python3 python3-mako autoconf automake libtool m4 \
+            glslang-tools xutils-dev zstd \
+            curl ca-certificates tar xz-utils bzip2 unzip
+
+      - name: Cache Android NDK
+        id: cache-ndk
+        uses: actions/cache@v4
+        with:
+          path: /opt/android-ndk
+          key: android-ndk-r27c
+
+      - name: Install Android NDK r27c
+        if: steps.cache-ndk.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSL -o /tmp/ndk.zip \
+            https://dl.google.com/android/repository/android-ndk-r27c-linux.zip
+          sudo unzip -q /tmp/ndk.zip -d /opt
+          sudo mv /opt/android-ndk-r27c /opt/android-ndk
+
+      - name: Cross-build libvulkan_wrapper.so
+        env:
+          ANDROID_NDK: /opt/android-ndk
+        run: bash scripts/build-android.sh
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: wrapper-powervr-arm64
+          path: |
+            dist/*.tzst
+            dist/libvulkan_wrapper.so
+            dist/libvulkan_wrapper.so.debug
