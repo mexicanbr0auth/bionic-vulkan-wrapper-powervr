@@ -164,12 +164,11 @@ wsi_create_ahardware_buffer_blit_context(const struct wsi_swapchain *chain,
       chain->device, image->ahardware_buffer, &ahardware_buffer_props);
    if (result != VK_SUCCESS)
       return result;
-   WSI_LOGT("blit ahb_props: format=%d externalFormat=%llu allocationSize=%llu memoryTypeBits=0x%x usage=0x%llx",
+   WSI_LOGT("blit ahb_props: format=%d externalFormat=%llu allocationSize=%llu memoryTypeBits=0x%x",
             ahardware_buffer_format_props.format,
             (unsigned long long)ahardware_buffer_format_props.externalFormat,
             (unsigned long long)ahardware_buffer_props.allocationSize,
-            ahardware_buffer_props.memoryTypeBits,
-            (unsigned long long)ahardware_buffer_props.androidHardwareBufferUsage);
+            ahardware_buffer_props.memoryTypeBits);
    const VkExternalFormatANDROID external_format = {
       .sType = VK_STRUCTURE_TYPE_EXTERNAL_FORMAT_ANDROID,
       .externalFormat = ahardware_buffer_format_props.externalFormat,

@@ -3,10 +3,11 @@ name: build-wrapper
 on:
   push:
     branches: ['**']
+    tags: ['v*']
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: build-wrapper-${{ github.ref }}
@@ -56,4 +57,32 @@ jobs:
           path: |
             dist/*.tzst
             dist/libvulkan_wrapper.so
+            dist/libvulkan_wrapper.so.debug
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: wrapper-powervr-arm64
+          path: dist
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          gh release create "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$TAG" \
+            --generate-notes \
+            dist/wrapper.tzst \
+            dist/libvulkan_wrapper.so \
             dist/libvulkan_wrapper.so.debug
