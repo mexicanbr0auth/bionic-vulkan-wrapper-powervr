@@ -104,6 +104,17 @@ WRAPPER_CreateImage(VkDevice _device,
    wimg->original_format = original_format;
    wimg->format = new_format;
    wimg->is_bcn_emulated = emulate_bcn;
+   if (emulate_bcn) {
+      device->hud_bcn_images++;
+      WLOGD("BCn image created: fmt=%d size=%ux%u mip=%u",
+            original_format, pCreateInfo->extent.width,
+            pCreateInfo->extent.height, pCreateInfo->mipLevels);
+   } else if (is_bc123_image_format(original_format) || is_bc4567_image_format(original_format)) {
+      WLOGD("BCn format seen but NOT emulated: fmt=%d (needs_bc1=%d needs_bc4=%d) size=%ux%u",
+            original_format, device->physical->needs_bc1_emulation,
+            device->physical->needs_bc4_emulation,
+            pCreateInfo->extent.width, pCreateInfo->extent.height);
+   }
    wimg->is_depth_stencil_reduced = is_depth_stencil_reduced;
 
    free_temp_objects(&temp);

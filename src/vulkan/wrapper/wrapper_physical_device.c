@@ -297,6 +297,9 @@ VkResult enumerate_physical_device(struct vk_instance *_instance)
 
       pdevice->needs_bc1_emulation = !pdevice->base_supported_features.textureCompressionBC && !has_bc1_support(pdevice);
       pdevice->needs_bc4_emulation = !pdevice->base_supported_features.textureCompressionBC && !has_bc4_support(pdevice);
+      WLOG("BCn config: hasBC1=%d hasBC4=%d needsBC1=%d needsBC4=%d",
+           has_bc1_support(pdevice), has_bc4_support(pdevice),
+           pdevice->needs_bc1_emulation, pdevice->needs_bc4_emulation);
 
       if (CHECK_FLAG("FORCE_BCN_EMULATION")) {
          if (pdevice->base_supported_features.textureCompressionBC) {

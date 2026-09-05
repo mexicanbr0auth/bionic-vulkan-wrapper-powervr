@@ -487,8 +487,9 @@ void wrapper_hud_tick(struct wrapper_device* device) {
    double fps = (double) (device->hud_frames - device->hud_last_frame_count) / dt;
 
    flockfile(fd);
-   fprintf(fd, "%7.1f %6.1f %llu %llu %llu %.1f %llu\n",
+   fprintf(fd, "%7.1f %6.1f %llu %llu %llu %llu %.1f %llu\n",
            now, fps,
+           (unsigned long long) device->hud_bcn_images,
            (unsigned long long) device->hud_bcn_decodes,
            (unsigned long long) device->hud_host_decodes,
            (unsigned long long) device->hud_bcn_skips,

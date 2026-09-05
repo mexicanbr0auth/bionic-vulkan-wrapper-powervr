@@ -70,7 +70,7 @@ FILE* wrapper_get_hud_fd(void) {
             if (__hud_fd) {
                 atexit(wrapper_hud_cleanup);
                 fprintf(__hud_fd,
-                    "# fps  frames  bcn_decodes  host_decodes  skips  staging_MB  bcn_per_s\n");
+                    "# fps  bcn_images  bcn_decodes  host_decodes  skips  staging_MB  bcn_per_s\n");
                 fflush(__hud_fd);
             }
             LOG("HUD enabled -> %s (%s)", path, __hud_fd ? "ok" : "failed");
@@ -143,6 +143,34 @@ static uintptr_t read_pc_from_ctx(void* context) {
     return 0;
 #endif
 }
+
+#if defined(__aarch64__)
+static void write_backtrace(int out_fd, uintptr_t pc, uintptr_t lr, uintptr_t fp) {
+    char line[128];
+
+    // First frame: faulting pc and its return address (x30 alias).
+    int n = snprintf(line, sizeof(line), "  #00 pc=%p lr=%p\n",
+                     (void*)pc, (void*)lr);
+    write_all(out_fd, line, (size_t)n);
+
+    // Walk the AAPCS64 frame-pointer chain (x29). Frames grow from high to
+    // low addresses, so each saved x29 must point strictly UP the stack.
+    uintptr_t cur = fp;
+    for (int i = 1; i < 32; i++) {
+        if (cur < 0x100000ULL || cur > 0x800000000000ULL || (cur & 7) != 0)
+            break;
+        volatile uint64_t* frame = (volatile uint64_t*)cur;
+        uintptr_t next_fp = (uintptr_t)frame[0];
+        uintptr_t ret    = (uintptr_t)frame[1];
+        if (next_fp <= cur || ret == 0)
+            break;
+        n = snprintf(line, sizeof(line), "  #%02d pc=%p\n",
+                     i, (void*)ret);
+        write_all(out_fd, line, (size_t)n);
+        cur = next_fp;
+    }
+}
+#endif
 
 static void crash_handler(int signo, siginfo_t* info, void* context) {
     FILE* fd = __log_fd;
@@ -238,6 +266,11 @@ static void crash_handler(int signo, siginfo_t* info, void* context) {
             close(maps_fd);
         }
         write_str(mfd, "=== end maps ===\n");
+#if defined(__aarch64__)
+        write_str(mfd, "=== backtrace ===\n");
+        write_backtrace(mfd, pc, lr, fp);
+        write_str(mfd, "=== end backtrace ===\n");
+#endif
         close(mfd);
     }
 
@@ -264,7 +297,6 @@ static void install_crash_handler(void) {
 
     sigaction(SIGSEGV, NULL, &__prev_sigsegv);
     sigaction(SIGSEGV, &sa, NULL);
-    sigaction(SIGABRT, &sa, NULL);
     sigaction(SIGBUS, &sa, NULL);
     sigaction(SIGILL, &sa, NULL);
 }

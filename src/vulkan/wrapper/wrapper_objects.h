@@ -116,6 +116,7 @@ struct wrapper_device {
     uint64_t hud_bcn_decodes;
     uint64_t hud_bcn_skips;
     uint64_t hud_host_decodes;
+    uint64_t hud_bcn_images;       /* images created with BCn emulation */
     uint64_t hud_bcn_staging_bytes;
     double   hud_start_time;      /* monotonic seconds when counting started */
     uint64_t hud_last_frame_count;
