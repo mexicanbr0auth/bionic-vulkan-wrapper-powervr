@@ -1,4 +1,6 @@
 #include <vndk/window.h>
+#include <errno.h>
+#include <android/rect.h>
 
 extern "C" {
 
@@ -113,5 +115,22 @@ ANativeWindow_setSharedBufferMode(ANativeWindow *window,
                                   bool sharedBufferMode)
 {
    return 0;
+}
+
+int
+AHardwareBuffer_lock(AHardwareBuffer *buffer,
+                     uint64_t usage,
+                     int32_t fence,
+                     const ARect *rect,
+                     void **outVirtualAddress)
+{
+   return -ENOSYS;
+}
+
+int
+AHardwareBuffer_unlock(AHardwareBuffer *buffer,
+                       int32_t *fence)
+{
+   return -ENOSYS;
 }
 }
