@@ -28,6 +28,15 @@ WRAPPER_CreateImage(VkDevice _device,
       emulate_bcn = false;
    }
 
+   uint32_t max_bcn_dim = get_max_bcn_dimension();
+   if (emulate_bcn && max_bcn_dim > 0 &&
+       (pCreateInfo->extent.width > max_bcn_dim || pCreateInfo->extent.height > max_bcn_dim)) {
+      WLOG("WRAPPER_MAX_BCN_SIZE: skipping BCn emulation for oversized texture %ux%u (fmt=%d, max=%u)",
+           pCreateInfo->extent.width, pCreateInfo->extent.height, pCreateInfo->format, max_bcn_dim);
+      emulate_bcn = false;
+      device->hud_bcn_skips++;
+   }
+
    struct temporary_objects temp;
    list_inithead(&temp.objects);
 

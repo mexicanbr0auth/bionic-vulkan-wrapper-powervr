@@ -1,3 +1,7 @@
+#include <stdlib.h>
+#include <string.h>
+#include <strings.h>
+
 #include "wrapper_private.h"
 #include "wrapper_log.h"
 #include "wrapper_trampolines.h"
@@ -21,6 +25,12 @@ uint32_t make_bcn_masks(const char* flag) {
     if (!mask_bcn) return mask;
 
     if (strstr(mask_bcn, "all")) return 0xffff;
+
+    // Allow an exact hex bitmask: bit (format - 131) = format, e.g.
+    // MASK_BCN=0xFFFF enables every BC1..BC7 variant (131..146).
+    if (strncmp(mask_bcn, "0x", 2) == 0 || strncmp(mask_bcn, "0X", 2) == 0) {
+        return (uint32_t) strtoul(mask_bcn, NULL, 16) & 0xffff;
+    }
 
 #define MASK_BIT(format) WLOG("Turning on BCn format " #format " for %s", flag); mask |= 1 << (format - 131)
     if (strstr(mask_bcn, "uncommon")) {
@@ -51,6 +61,50 @@ uint32_t make_bcn_masks(const char* flag) {
         MASK_BIT(142);
     }
 
+    if (strstr(mask_bcn, "common")) {
+        // Most common game formats: BC1, BC2, BC3, BC5, BC7
+        MASK_BIT(131);
+        MASK_BIT(132);
+        MASK_BIT(133);
+        MASK_BIT(134);
+        MASK_BIT(135);
+        MASK_BIT(136);
+        MASK_BIT(137);
+        MASK_BIT(138);
+        MASK_BIT(141);
+        MASK_BIT(142);
+        MASK_BIT(145);
+        MASK_BIT(146);
+    }
+    if (strstr(mask_bcn, "alpha")) {
+        // Formats that carry an alpha channel: BC2, BC3, BC7
+        MASK_BIT(135);
+        MASK_BIT(136);
+        MASK_BIT(137);
+        MASK_BIT(138);
+        MASK_BIT(145);
+        MASK_BIT(146);
+    }
+    if (strstr(mask_bcn, "color")) {
+        // BC1 opaque color
+        MASK_BIT(131);
+        MASK_BIT(132);
+        MASK_BIT(133);
+        MASK_BIT(134);
+    }
+    if (strstr(mask_bcn, "hdr") || strstr(mask_bcn, "bc6h")) {
+        // BC6H half-float HDR
+        MASK_BIT(143);
+        MASK_BIT(144);
+    }
+    if (strstr(mask_bcn, "rg") || strstr(mask_bcn, "mono")) {
+        // BC4/BC5 single/two channel
+        MASK_BIT(139);
+        MASK_BIT(140);
+        MASK_BIT(141);
+        MASK_BIT(142);
+    }
+
     if (strstr(mask_bcn, "bc1")) {
         MASK_BIT(131);
         MASK_BIT(132);
@@ -75,13 +129,14 @@ uint32_t make_bcn_masks(const char* flag) {
         MASK_BIT(141);
         MASK_BIT(142);
     }
-    if (strstr(mask_bcn, "bc6")) {
+    if (strstr(mask_bcn, "bc6") || strstr(mask_bcn, "bc6h")) {
         MASK_BIT(143);
         MASK_BIT(144);
     }
     if (strstr(mask_bcn, "bc7")) {
-        MASK_BIT(135);
-        MASK_BIT(136);
+        // Was previously (incorrectly) mapped onto BC2 formats 135/136
+        MASK_BIT(145);
+        MASK_BIT(146);
     }
 #undef MASK_BIT
 
@@ -372,7 +427,24 @@ bool use_image_view_mode() {
 }
 
 bool use_compute_shader_mode() {
-    return true;
+    static bool value = true;
+    static bool initialized = false;
+    if (initialized) {
+        return value;
+    }
+    initialized = true;
+
+    const char* env = getenv("WRAPPER_BCN_COMPUTE");
+    if (env) {
+        if (strcmp(env, "0") == 0) {
+            WLOG("WRAPPER_BCN_COMPUTE=0: using host (CPU) BCn decompression only");
+            value = false;
+        } else if (strcmp(env, "1") == 0) {
+            WLOG("WRAPPER_BCN_COMPUTE=1: using GPU compute-shader BCn decompression");
+        }
+    }
+
+    return value;
 }
 
 
@@ -417,4 +489,72 @@ enum DepthFormatOverrideMode get_depth_format_override_mode(void) {
         WLOGE("Depth Override: Disabling depth/stencil images for debugging, expect errors");
     }
     return mode;
+}
+
+enum WrapperPerfMode get_perf_mode(void) {
+    static enum WrapperPerfMode mode = PERF_BALANCED;
+    static bool initialized = false;
+    if (initialized) return mode;
+    initialized = true;
+
+    const char* value = getenv("WRAPPER_PERF_MODE");
+    if (!value) return mode;
+
+    if (strcasecmp(value, "performance") == 0) {
+        mode = PERF_PERFORMANCE;
+        WLOG("Perf Mode: performance (auto CPU/GPU BCn split, big textures may skip emulation)");
+    } else if (strcasecmp(value, "quality") == 0) {
+        mode = PERF_QUALITY;
+        WLOG("Perf Mode: quality (always GPU compute BCn decode, slowest but most accurate)");
+    }
+    return mode;
+}
+
+uint32_t get_max_bcn_dimension(void) {
+    static uint32_t dim = 0;
+    static bool initialized = false;
+    if (initialized) return dim;
+    initialized = true;
+
+    const char* value = getenv("WRAPPER_MAX_BCN_SIZE");
+    if (!value) return dim;
+    long parsed = strtol(value, NULL, 10);
+    if (parsed <= 0) return dim;
+    dim = (uint32_t) parsed;
+    WLOG("Max BCn size = %u px (textures larger than this skip emulation)", dim);
+    return dim;
+}
+
+uint64_t get_bcn_cpu_decode_pixels(void) {
+    static uint64_t px = 262144;
+    static bool initialized = false;
+    if (initialized) return px;
+    initialized = true;
+
+    const char* value = getenv("WRAPPER_BCN_CPU_SIZE");
+    if (!value) return px;
+    long parsed = strtol(value, NULL, 10);
+    if (parsed > 0) px = (uint64_t) parsed;
+    return px;
+}
+
+bool wrapper_hud_enabled(void) {
+    return CHECK_FLAG("WRAPPER_HUD");
+}
+
+double wrapper_hud_interval(void) {
+    static double interval = 1.0;
+    static bool initialized = false;
+    if (initialized) return interval;
+    initialized = true;
+
+    const char* value = getenv("WRAPPER_HUD_INTERVAL");
+    if (!value) return interval;
+    double parsed = strtod(value, NULL);
+    if (parsed >= 0.1) interval = parsed;
+    return interval;
+}
+
+const char* wrapper_hud_file(void) {
+    return getenv("WRAPPER_HUD_FILE");
 }

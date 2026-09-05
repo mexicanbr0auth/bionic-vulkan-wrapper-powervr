@@ -196,6 +196,24 @@ VkResult enumerate_physical_device(struct vk_instance *_instance)
       pdevice->wsi_device.wants_ahardware_buffer = true;
 #endif
 
+      // WRAPPER_PRESENT_MODE: wrapper-local override for the Mesa WSI present
+      // mode (fifo/clock, fifo/relaxed, mailbox, immediate, shared*). Applied
+      // after wsi_device_init so it wins over MESA_VK_WSI_PRESENT_MODE.
+      const char* wrapper_present_mode = getenv("WRAPPER_PRESENT_MODE");
+      if (wrapper_present_mode && wrapper_present_mode[0] != '\0') {
+         if (strcmp(wrapper_present_mode, "fifo") == 0) {
+            pdevice->wsi_device.override_present_mode = VK_PRESENT_MODE_FIFO_KHR;
+         } else if (strcmp(wrapper_present_mode, "relaxed") == 0) {
+            pdevice->wsi_device.override_present_mode = VK_PRESENT_MODE_FIFO_RELAXED_KHR;
+         } else if (strcmp(wrapper_present_mode, "mailbox") == 0) {
+            pdevice->wsi_device.override_present_mode = VK_PRESENT_MODE_MAILBOX_KHR;
+         } else if (strcmp(wrapper_present_mode, "immediate") == 0) {
+            pdevice->wsi_device.override_present_mode = VK_PRESENT_MODE_IMMEDIATE_KHR;
+         } else {
+            WLOG("WRAPPER_PRESENT_MODE: unknown mode '%s' (fifo/relaxed/mailbox/immediate)", wrapper_present_mode);
+         }
+      }
+
       pdevice->driver_properties = (VkPhysicalDeviceDriverProperties) {
          .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES,
       };

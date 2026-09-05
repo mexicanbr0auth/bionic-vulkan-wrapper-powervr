@@ -1,3 +1,5 @@
+#include <time.h>
+
 #include "wrapper_private.h"
 #include "wrapper_entrypoints.h"
 #include "wrapper_trampolines.h"
@@ -445,13 +447,59 @@ WRAPPER_GetDeviceProcAddr(VkDevice _device, const char* pName) {
 WRAPPER_QueueSubmit(VkQueue _queue, uint32_t submitCount,
                     const VkSubmitInfo* pSubmits, VkFence fence)
 {
+   VK_FROM_HANDLE(wrapper_queue, queue, _queue);
+   if (queue && queue->device) {
+      queue->device->hud_frames += submitCount ? submitCount : 1;
+      wrapper_hud_tick(queue->device);
+   }
    return CHECK(QueueSubmit(_queue, submitCount, pSubmits, fence));
 }
 
 WRAPPER_QueueSubmit2(VkQueue _queue, uint32_t submitCount,
                      const VkSubmitInfo2* pSubmits, VkFence fence)
 {
+   VK_FROM_HANDLE(wrapper_queue, queue, _queue);
+   if (queue && queue->device) {
+      queue->device->hud_frames += submitCount ? submitCount : 1;
+      wrapper_hud_tick(queue->device);
+   }
    return CHECK(QueueSubmit2(_queue, submitCount, pSubmits, fence));
+}
+
+void wrapper_hud_tick(struct wrapper_device* device) {
+   FILE* fd = wrapper_get_hud_fd();
+   if (!fd) return;
+
+   struct timespec ts;
+   clock_gettime(CLOCK_MONOTONIC, &ts);
+   double now = (double) ts.tv_sec + (double) ts.tv_nsec / 1.0e9;
+
+   if (device->hud_start_time == 0.0) {
+      device->hud_start_time = now;
+      device->hud_last_tick_time = now;
+      return;
+   }
+
+   double dt = now - device->hud_last_tick_time;
+   if (dt < wrapper_hud_interval()) return;
+
+   double elapsed = now - device->hud_start_time;
+   double fps = (double) (device->hud_frames - device->hud_last_frame_count) / dt;
+
+   flockfile(fd);
+   fprintf(fd, "%7.1f %6.1f %llu %llu %llu %.1f %llu\n",
+           now, fps,
+           (unsigned long long) device->hud_bcn_decodes,
+           (unsigned long long) device->hud_host_decodes,
+           (unsigned long long) device->hud_bcn_skips,
+           (double) device->hud_bcn_staging_bytes / (1024.0 * 1024.0),
+           (unsigned long long) (elapsed > 0.0
+               ? (double) device->hud_bcn_decodes / elapsed : 0.0));
+   fflush(fd);
+   funlockfile(fd);
+
+   device->hud_last_frame_count = device->hud_frames;
+   device->hud_last_tick_time = now;
 }
 
 WRAPPER_CmdExecuteCommands(VkCommandBuffer commandBuffer,
@@ -1634,9 +1682,32 @@ WRAPPER_CmdCopyBufferToImage(VkCommandBuffer commandBuffer,
 
       WLOGD("use_compute_shader=%d, use_image_view=%d", use_compute_shader, use_image_view);
 
+      // PERF_MODE=performance: decode small textures on the CPU (the Helio G99
+      // cores are strong enough for tiny BCn blocks and this avoids per-texture
+      // GPU compute dispatches), leave large textures on the GPU.
+      bool cpu_region = use_cpu_bcn;
+      bool compute_region = use_compute_shader;
+      bool image_view_region = use_image_view;
+      if (get_perf_mode() == PERF_PERFORMANCE && !cpu_region &&
+          (uint64_t) region->imageExtent.width * (uint64_t) region->imageExtent.height <= get_bcn_cpu_decode_pixels()) {
+         static bool perf_logged = false;
+         if (!perf_logged) {
+            perf_logged = true;
+            WLOG("PERF_MODE=performance: CPU-decoding small BCn textures");
+         }
+         cpu_region = true;
+         compute_region = false;
+         image_view_region = false;
+      }
+
+      _device->hud_bcn_decodes++;
+      if (cpu_region) {
+         _device->hud_host_decodes++;
+      }
+
       VkBuffer stagingBuffer;
       VkDeviceMemory stagingBufferMemory;
-      if (!use_image_view) {
+      if (!image_view_region) {
          result = CreateStagingBuffer(
             _device, 
             region->imageExtent.width * region->imageExtent.height * get_bc_target_size(_device->physical, wimg->original_format),
@@ -1648,6 +1719,10 @@ WRAPPER_CmdCopyBufferToImage(VkCommandBuffer commandBuffer,
             return;
          }
 
+         _device->hud_bcn_staging_bytes +=
+            (uint64_t) region->imageExtent.width * region->imageExtent.height *
+            get_bc_target_size(_device->physical, wimg->original_format);
+
          // TODO: track these using the fence/semaphore for the submitted queue
          // This should be safe to do now with the queue synchronization, check with vvl
          WLOGD("Tracking new staging buffer for image %d", wimg->obj_id);
@@ -1655,7 +1730,7 @@ WRAPPER_CmdCopyBufferToImage(VkCommandBuffer commandBuffer,
          TRACK_STAGING(_device, DEVICE_MEMORY, stagingBufferMemory, wimg);
       }
 
-      if (use_compute_shader) {
+      if (compute_region) {
          struct InterceptorState* state = &_device->s3tc;
          if (wimg->original_format == VK_FORMAT_BC7_UNORM_BLOCK 
             || wimg->original_format == VK_FORMAT_BC7_SRGB_BLOCK) {
@@ -1670,10 +1745,10 @@ WRAPPER_CmdCopyBufferToImage(VkCommandBuffer commandBuffer,
             .srcBuffer = srcBuffer,
             .region = region,
             .state = state,
-            .use_image_view = use_image_view,
+            .use_image_view = image_view_region,
          };
 
-         if (use_image_view) {
+         if (image_view_region) {
             args.dstImage = dstImage;
             args.dstImageLayout = dstImageLayout;
          } else {
@@ -1708,7 +1783,7 @@ WRAPPER_CmdCopyBufferToImage(VkCommandBuffer commandBuffer,
          RecordBCnArtifacts(_device, wimg, region, srcBuffer, stagingBuffer, decode_id, validate_bcn);
       }
 
-      if (!use_image_view) {
+      if (!image_view_region) {
          VkBufferMemoryBarrier bufferBarrier = {
             .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
             .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT, // Source access mask for shader write

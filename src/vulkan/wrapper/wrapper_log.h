@@ -97,6 +97,17 @@ int should_log_cmd(void);
 
 void wlog(const char* fmt, ...);
 
+/* Log-based HUD. WRAPPER_HUD=1 opens a CSV-ish telemetry file that
+ * wrapper_hud_tick() appends to (rate-limited by WRAPPER_HUD_INTERVAL).
+ * Device-level stats are kept in struct wrapper_device. */
+FILE* wrapper_get_hud_fd(void);
+void wrapper_hud_cleanup(void);
+
+/* Rate-limited HUD sample; called from WRAPPER_QueueSubmit/2 when the
+ * HUD is active. Reads the device counters added by the BCn paths. */
+struct wrapper_device;
+void wrapper_hud_tick(struct wrapper_device *device);
+
 VKAPI_ATTR VkBool32 VKAPI_CALL
 wrapper_debug_callback(
     VkDebugUtilsMessageSeverityFlagBitsEXT           messageSeverity,

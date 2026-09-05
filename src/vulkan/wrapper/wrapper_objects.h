@@ -111,6 +111,16 @@ struct wrapper_device {
     InterceptorState bc6;
     InterceptorState bc7;
 
+    // HUD / telemetry counters (only tracked, zero cost when WRAPPER_HUD=0)
+    uint64_t hud_frames;
+    uint64_t hud_bcn_decodes;
+    uint64_t hud_bcn_skips;
+    uint64_t hud_host_decodes;
+    uint64_t hud_bcn_staging_bytes;
+    double   hud_start_time;      /* monotonic seconds when counting started */
+    uint64_t hud_last_frame_count;
+    double   hud_last_tick_time;  /* monotonic seconds of last HUD line */
+
     // depth-stencil resolution reduction
     enum DepthFormatOverrideMode depth_override_mode;
     bool supports_d16_unorm_s8_uint;

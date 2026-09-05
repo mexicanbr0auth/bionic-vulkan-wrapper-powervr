@@ -30,6 +30,9 @@ FILE* get_wrapper_cmd_log_fd() {
     return __cmd_log_fd;
 }
 
+void get_current_time_string(char* buffer, size_t bufferSize);
+static void ensure_log_dir(void);
+
 static void cleanup_log_file(void) {
     if (__log_fd) {
         fclose(__log_fd);
@@ -41,6 +44,45 @@ static void cleanup_cmd_log_file(void) {
     if (__cmd_log_fd) {
         fclose(__cmd_log_fd);
         __cmd_log_fd = NULL;
+    }
+}
+
+static FILE* __hud_fd;
+static bool __hud_initialized;
+
+FILE* wrapper_get_hud_fd(void) {
+    if (!__hud_initialized) {
+        __hud_initialized = true;
+        if (wrapper_hud_enabled()) {
+            const char* base = wrapper_hud_file();
+            char time_str[20];
+            get_current_time_string(time_str, sizeof(time_str));
+            char path[256];
+            ensure_log_dir();
+            if (base) {
+                snprintf(path, sizeof(path), "/sdcard/Documents/Wrapper/%s_%s.%s.%d.txt",
+                         base, time_str, getprogname(), getpid());
+            } else {
+                snprintf(path, sizeof(path), "/sdcard/Documents/Wrapper/hud_%s.%s.%d.txt",
+                         time_str, getprogname(), getpid());
+            }
+            __hud_fd = fopen(path, "w");
+            if (__hud_fd) {
+                atexit(wrapper_hud_cleanup);
+                fprintf(__hud_fd,
+                    "# fps  frames  bcn_decodes  host_decodes  skips  staging_MB  bcn_per_s\n");
+                fflush(__hud_fd);
+            }
+            LOG("HUD enabled -> %s (%s)", path, __hud_fd ? "ok" : "failed");
+        }
+    }
+    return __hud_fd;
+}
+
+void wrapper_hud_cleanup(void) {
+    if (__hud_fd) {
+        fclose(__hud_fd);
+        __hud_fd = NULL;
     }
 }
 
